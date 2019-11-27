@@ -73,4 +73,5 @@ struct board_t
     struct treasure_t bags[BAGS];
 };
 
+
 #endif
