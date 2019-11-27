@@ -89,7 +89,6 @@ int main()
     pthread_create(&print_map_thread, NULL, print_board, pboard);
 
     pthread_create(&beasts_thread, NULL, move_beast, pboard);
-    
     pthread_join(print_map_thread, NULL);
 
     getchar();
