@@ -20,7 +20,6 @@ int main()
     init_pair(7, COLOR_YELLOW, COLOR_GREEN);
     init_pair(8, COLOR_RED, COLOR_WHITE);
 
-
     int players_data;
     while(1) //Open data
     {
