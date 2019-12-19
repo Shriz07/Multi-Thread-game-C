@@ -22,6 +22,7 @@ int main()
     init_pair(7, COLOR_YELLOW, COLOR_GREEN);
     init_pair(8, COLOR_RED, COLOR_WHITE);
 
+
     int players_data;
     while(1)   //Try to open data
     {
@@ -34,17 +35,30 @@ int main()
 
     struct players_t *players = (struct players_t *)mmap(NULL, sizeof(struct players_t), PROT_READ | PROT_WRITE, MAP_SHARED, players_data, 0);
     int my_id = 0;
-    for(int i = 0; i < 4; i++) //Find id
+    while(1)
     {
-        if(players->player[i].in_game == 0)
+        int found = 0;
+        for(int i = 0; i < 4; i++) //Find id
         {
-            players->player[i].type = BOT;
-            players->player[i].x = 0;
-            players->player[i].in_game = 0;
-            my_id = i;
-            sem_post(&players->player_response);
-            sem_wait(&players->request_position);
-            break;
+            if(players->player[i].in_game == 0)
+            {
+                players->player[i].type = HUMAN;
+                players->player[i].x = 0;
+                players->player[i].in_game = 0;
+                my_id = i;
+                sem_post(&players->player_response);
+                sem_wait(&players->request_position);
+                found = 1;
+                break;
+            }
+        }
+        if(found) break;
+        else
+        {
+            clear();
+            mvprintw(0, 0, "Server is full, please wait...");
+            refresh();
+            usleep(1000000);
         }
     }
 
