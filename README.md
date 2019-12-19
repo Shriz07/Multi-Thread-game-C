@@ -1,5 +1,5 @@
 # Multi-Thread-game-C
-###Works only on Linux
+### Works only on Linux
 This game was made for Project from Operating Systems using Shared memory, Semaphores, Threads management.
 
 
