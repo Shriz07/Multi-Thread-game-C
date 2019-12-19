@@ -13,21 +13,46 @@ void *move_beast(void *board); //Function to handle beast movement;
 
 int main()
 {
-    int players_data = shm_open("/players", O_CREAT | O_RDWR, 0600); //Shared mem
+    srand(time(NULL));
+
+    int player_data1 = shm_open("/player1", O_CREAT | O_RDWR, 0600); //Shared mem
+    int player_data2 = shm_open("/player2", O_CREAT | O_RDWR, 0600); //Shared mem
+    int player_data3 = shm_open("/player3", O_CREAT | O_RDWR, 0600); //Shared mem
+    int player_data4 = shm_open("/player4", O_CREAT | O_RDWR, 0600); //Shared mem
+
+    int players_id = shm_open("/id", O_CREAT | O_RDWR, 0600); //Shared memory with id
 
     struct board_t *pboard = (struct board_t *)malloc(sizeof(struct board_t));
+    struct players_t *ptr = (struct players_t *)malloc(sizeof(struct players_t));
+    pboard->pplayers = ptr;
 
-    ftruncate(players_data, sizeof(struct players_t));
-    struct players_t *players = (struct players_t *)mmap(NULL, sizeof(struct players_t), PROT_READ | PROT_WRITE, MAP_SHARED, players_data, 0);
 
-    pboard -> pplayers = players;
+    ftruncate(players_id, sizeof(struct req_id));
+    ftruncate(player_data1, sizeof(struct player_t));
+    ftruncate(player_data2, sizeof(struct player_t));
+    ftruncate(player_data3, sizeof(struct player_t));
+    ftruncate(player_data4, sizeof(struct player_t));
+
+    struct req_id *ptr_id = (struct req_id *)mmap(NULL, sizeof(struct req_id), PROT_READ | PROT_WRITE, MAP_SHARED, players_id, 0);
+    struct player_t *player1 = (struct player_t *)mmap(NULL, sizeof(struct player_t), PROT_READ | PROT_WRITE, MAP_SHARED, player_data1, 0);
+    struct player_t *player2 = (struct player_t *)mmap(NULL, sizeof(struct player_t), PROT_READ | PROT_WRITE, MAP_SHARED, player_data2, 0);
+    struct player_t *player3 = (struct player_t *)mmap(NULL, sizeof(struct player_t), PROT_READ | PROT_WRITE, MAP_SHARED, player_data3, 0);
+    struct player_t *player4 = (struct player_t *)mmap(NULL, sizeof(struct player_t), PROT_READ | PROT_WRITE, MAP_SHARED, player_data4, 0);
+
+    pboard->pplayers->player[0] = player1;
+    pboard->pplayers->player[1] = player2;
+    pboard->pplayers->player[2] = player3;
+    pboard->pplayers->player[3] = player4;
+    pboard->pplayers->p_id = ptr_id;
 
     new_map("map.txt", pboard->map); //Load map from file
+
     for(int i = 0; i < 4; i++) //Set no players in game
     {
-        pboard->pplayers->player[i].in_game = 0;
-        pboard->pplayers->player[i].x = -1;
-        sem_init(&pboard->pplayers->player[i].request_move, 1, 0);
+        pboard->pplayers->p_id->id[i] = 0;
+        pboard->pplayers->player[i]->in_game = 0;
+        pboard->pplayers->player[i]->x = -1;
+        sem_init(&pboard->pplayers->player[i]->request_move, 1, 0);
     }
 
     for(int i = 0; i < BAGS; i++) //Set no treasure bags
@@ -57,9 +82,12 @@ int main()
 
     add_coin(pboard, START_TREASURE, NULL); //Add 10 random treasures on map
 
-    sem_init(&players->player_response, 1, 0); //Initialize semaphores
-    sem_init(&players->request_position, 1, 0);
-    sem_init(&players->sync_map, 1, 0);
+    sem_init(&pboard->pplayers->p_id->player_response, 1, 0); //Initialize semaphores
+    sem_init(&pboard->pplayers->p_id->request_position, 1, 0);
+    sem_init(&pboard->pplayers->sync_map, 1, 0);
+    sem_init(&pboard->pplayers->move_beast, 1, 0);
+    sem_init(&pboard->pplayers->beast_response, 1, 0);
+    pthread_mutex_init(&pboard->resp_player, NULL);
     pthread_mutex_init(&pboard->add_coin, NULL);
 
     initscr();
@@ -75,7 +103,6 @@ int main()
     init_pair(6, COLOR_YELLOW, COLOR_GREEN);
     init_pair(7, COLOR_WHITE, -1);
     init_pair(8, COLOR_RED, COLOR_WHITE);
-    srand(time(NULL));
 
     pthread_t resp_thread, quit_thread; //Thread to check whether someone tries to join, if yes randomize his position
     pthread_create(&resp_thread, NULL, resp_player, pboard);
@@ -89,13 +116,18 @@ int main()
     pthread_create(&print_map_thread, NULL, print_board, pboard);
 
     pthread_create(&beasts_thread, NULL, move_beast, pboard);
+    
     pthread_join(print_map_thread, NULL);
 
     getchar();
     endwin();
     shm_unlink("/players");
     free(pboard);
-    close(players_data);
+    close(player_data1);
+    close(player_data2);
+    close(player_data3);
+    close(player_data4);
+    close(players_id);
     return 0;
 }
 
@@ -144,22 +176,22 @@ void *print_board(void *board)
                         mvprintw(y, x, "D");
                     }
                 }
-                if(x == pboard->pplayers->player[0].x && y == pboard->pplayers->player[0].y ) //Print player 1
+                if(x == pboard->pplayers->player[0]->x && y == pboard->pplayers->player[0]->y ) //Print player 1
                 {
                     attron(COLOR_PAIR(4));
                     mvprintw(y, x, "1");
                 }
-                if(x == pboard->pplayers->player[1].x && y == pboard->pplayers->player[1].y ) //Print player 2
+                if(x == pboard->pplayers->player[1]->x && y == pboard->pplayers->player[1]->y ) //Print player 2
                 {
                     attron(COLOR_PAIR(4));
                     mvprintw(y, x, "2");
                 }
-                if(x == pboard->pplayers->player[2].x && y == pboard->pplayers->player[2].y ) //Print player 3
+                if(x == pboard->pplayers->player[2]->x && y == pboard->pplayers->player[2]->y ) //Print player 3
                 {
                     attron(COLOR_PAIR(4));
                     mvprintw(y, x, "3");
                 }
-                if(x == pboard->pplayers->player[3].x && y == pboard->pplayers->player[3].y ) //Print player 4
+                if(x == pboard->pplayers->player[3]->x && y == pboard->pplayers->player[3]->y ) //Print player 4
                 {
                     attron(COLOR_PAIR(4));
                     mvprintw(y, x, "4");
@@ -184,12 +216,12 @@ void *print_board(void *board)
                 mvprintw(11, 56, "Brought");
                 for(int i = 0; i < 4; i++)
                 {
-                    if(pboard->pplayers->player[i].in_game) //Print all info about players in game
+                    if(pboard->pplayers->player[i]->in_game) //Print all info about players in game
                     {
-                        if(i == 0) {if(pboard->pplayers->player[i].type==HUMAN)mvprintw(6, 66, "HUMAN"); else mvprintw(6, 66, "BOT"); mvprintw(7, 66, "%d/%d", pboard->pplayers->player[i].x, pboard->pplayers->player[i].y);mvprintw(8, 66, "%d", pboard->pplayers->player[i].deaths); mvprintw(10, 66, "%d", pboard->pplayers->player[i].carry_coins); mvprintw(11, 66, "%d", pboard->pplayers->player[i].safe_coins);}
-                        if(i == 1) {if(pboard->pplayers->player[i].type==HUMAN)mvprintw(6, 74, "HUMAN"); else mvprintw(6, 74, "BOT"); mvprintw(7, 74, "%d/%d", pboard->pplayers->player[i].x, pboard->pplayers->player[i].y);mvprintw(8, 74, "%d", pboard->pplayers->player[i].deaths); mvprintw(10, 74, "%d", pboard->pplayers->player[i].carry_coins); mvprintw(11, 74, "%d", pboard->pplayers->player[i].safe_coins);}
-                        if(i == 2) {if(pboard->pplayers->player[i].type==HUMAN)mvprintw(6, 82, "HUMAN"); else mvprintw(6, 82, "BOT"); mvprintw(7, 82, "%d/%d", pboard->pplayers->player[i].x, pboard->pplayers->player[i].y);mvprintw(8, 82, "%d", pboard->pplayers->player[i].deaths); mvprintw(10, 82, "%d", pboard->pplayers->player[i].carry_coins); mvprintw(11, 82, "%d", pboard->pplayers->player[i].safe_coins);}
-                        if(i == 3) {if(pboard->pplayers->player[i].type==HUMAN)mvprintw(6, 90, "HUMAN"); else mvprintw(6, 90, "BOT"); mvprintw(7, 90, "%d/%d", pboard->pplayers->player[i].x, pboard->pplayers->player[i].y);mvprintw(8, 90, "%d", pboard->pplayers->player[i].deaths); mvprintw(10, 90, "%d", pboard->pplayers->player[i].carry_coins); mvprintw(11, 90, "%d", pboard->pplayers->player[i].safe_coins);}
+                        if(i == 0) {if(pboard->pplayers->player[i]->type==HUMAN)mvprintw(6, 66, "HUMAN"); else mvprintw(6, 66, "BOT"); mvprintw(7, 66, "%d/%d", pboard->pplayers->player[i]->x, pboard->pplayers->player[i]->y);mvprintw(8, 66, "%d", pboard->pplayers->player[i]->deaths); mvprintw(10, 66, "%d", pboard->pplayers->player[i]->carry_coins); mvprintw(11, 66, "%d", pboard->pplayers->player[i]->safe_coins);}
+                        if(i == 1) {if(pboard->pplayers->player[i]->type==HUMAN)mvprintw(6, 74, "HUMAN"); else mvprintw(6, 74, "BOT"); mvprintw(7, 74, "%d/%d", pboard->pplayers->player[i]->x, pboard->pplayers->player[i]->y);mvprintw(8, 74, "%d", pboard->pplayers->player[i]->deaths); mvprintw(10, 74, "%d", pboard->pplayers->player[i]->carry_coins); mvprintw(11, 74, "%d", pboard->pplayers->player[i]->safe_coins);}
+                        if(i == 2) {if(pboard->pplayers->player[i]->type==HUMAN)mvprintw(6, 82, "HUMAN"); else mvprintw(6, 82, "BOT"); mvprintw(7, 82, "%d/%d", pboard->pplayers->player[i]->x, pboard->pplayers->player[i]->y);mvprintw(8, 82, "%d", pboard->pplayers->player[i]->deaths); mvprintw(10, 82, "%d", pboard->pplayers->player[i]->carry_coins); mvprintw(11, 82, "%d", pboard->pplayers->player[i]->safe_coins);}
+                        if(i == 3) {if(pboard->pplayers->player[i]->type==HUMAN)mvprintw(6, 90, "HUMAN"); else mvprintw(6, 90, "BOT"); mvprintw(7, 90, "%d/%d", pboard->pplayers->player[i]->x, pboard->pplayers->player[i]->y);mvprintw(8, 90, "%d", pboard->pplayers->player[i]->deaths); mvprintw(10, 90, "%d", pboard->pplayers->player[i]->carry_coins); mvprintw(11, 90, "%d", pboard->pplayers->player[i]->safe_coins);}
                     }
                     else //Print - if players are not in game
                     {
@@ -231,6 +263,7 @@ void *move_beast(void *board)
 
     while(1)
     {
+        sem_wait(&pboard->pplayers->move_beast);
         for(int i = 0; i < MAX_BEASTS; i++)
         {
             if(pboard->pplayers->beast[i].in_game)
@@ -250,13 +283,13 @@ void *move_beast(void *board)
                 int moved = 0;
                 for(int j = 0; j < 4; j++)
                 {
-                    if(pboard->pplayers->player[j].in_game) //Check if player is in game
+                    if(pboard->pplayers->player[j]->in_game) //Check if player is in game
                     {
-                        if(pboard->pplayers->player[j].x == pboard->pplayers->beast[i].x) //Check if they are in the same x 
+                        if(pboard->pplayers->player[j]->x == pboard->pplayers->beast[i].x) //Check if they are in the same x 
                         {
-                            x = pboard->pplayers->player[j].x;
+                            x = pboard->pplayers->player[j]->x;
                             int beast_y = pboard->pplayers->beast[i].y;
-                            int player_y = pboard->pplayers->player[j].y;
+                            int player_y = pboard->pplayers->player[j]->y;
                             int can_move = 1;
                             if(beast_y > player_y) //Beast is under player
                             {
@@ -279,11 +312,11 @@ void *move_beast(void *board)
                                 }
                             }
                         }
-                        else if(pboard->pplayers->player[j].y == pboard->pplayers->beast[i].y) //Check if they are in the same y 
+                        else if(pboard->pplayers->player[j]->y == pboard->pplayers->beast[i].y) //Check if they are in the same y 
                         {
-                            y = pboard->pplayers->player[j].y;
+                            y = pboard->pplayers->player[j]->y;
                             int beast_x = pboard->pplayers->beast[i].x;
-                            int player_x = pboard->pplayers->player[j].x;
+                            int player_x = pboard->pplayers->player[j]->x;
                             int can_move = 1;
                             if(beast_x > player_x) //Beast is under player
                             {
@@ -354,7 +387,7 @@ void *move_beast(void *board)
                 }
             }
         }
-        usleep(1000000);
+        sem_post(&pboard->pplayers->beast_response);
     }
 
     return NULL;
@@ -365,33 +398,36 @@ void *move_player(void *players)
     struct board_t *pboard = (struct board_t *)players;
 
     while(1)
-    {
+    {  
+        sem_post(&pboard->pplayers->move_beast); //Give signal to beast to move
+        sem_wait(&pboard->pplayers->beast_response); //Wait for beast to move
         for(int i = 0; i < 4; i++)
         {
-            if(pboard->pplayers->player[i].in_game && pboard->pplayers->player[i].x > 0)
+            if(pboard->pplayers->player[i]->in_game)
             {
-                int p_x = pboard->pplayers->player[i].x;
-                int p_y = pboard->pplayers->player[i].y;
+
+                int p_x = pboard->pplayers->player[i]->x;
+                int p_y = pboard->pplayers->player[i]->y;
                 int moved = 0;
                 //Check if player can make a move
-                if(pboard->pplayers->player[i].move == 'A' || pboard->pplayers->player[i].move == 'w') //Move up
+                if(pboard->pplayers->player[i]->move == 'A' || pboard->pplayers->player[i]->move == 'w') //Move up
                     if(pboard->map[p_y-1][p_x] == ' ' || pboard->map[p_y-1][p_x] == 'c' || pboard->map[p_y-1][p_x] == 't' || pboard->map[p_y-1][p_x] == 'T' || pboard->map[p_y-1][p_x] == '#' || pboard->map[p_y-1][p_x] == 'A' || pboard->map[p_y-1][p_x] == 'D')  
                         {
-                            if(pboard->pplayers->player[i].in_bushes) pboard->pplayers->player[i].in_bushes = 0; //If player is in bush wait...
+                            if(pboard->pplayers->player[i]->in_bushes) pboard->pplayers->player[i]->in_bushes = 0; //If player is in bush wait...
                             else
                             {
-                                pboard->pplayers->player[i].y--; moved=1;
-                                if(pboard->map[p_y-1][p_x] == 'c') {pboard->pplayers->player[i].carry_coins++; pboard->map[p_y-1][p_x] = ' ';}
-                                if(pboard->map[p_y-1][p_x] == 't') {pboard->pplayers->player[i].carry_coins+=10; pboard->map[p_y-1][p_x] = ' ';}
-                                if(pboard->map[p_y-1][p_x] == 'T') {pboard->pplayers->player[i].carry_coins+=50; pboard->map[p_y-1][p_x] = ' ';}
-                                if(pboard->map[p_y-1][p_x] == 'A') {pboard->pplayers->player[i].safe_coins += pboard->pplayers->player[i].carry_coins; pboard->pplayers->player[i].carry_coins = 0;}
+                                pboard->pplayers->player[i]->y--; moved=1;
+                                if(pboard->map[p_y-1][p_x] == 'c') {pboard->pplayers->player[i]->carry_coins++; pboard->map[p_y-1][p_x] = ' ';}
+                                if(pboard->map[p_y-1][p_x] == 't') {pboard->pplayers->player[i]->carry_coins+=10; pboard->map[p_y-1][p_x] = ' ';}
+                                if(pboard->map[p_y-1][p_x] == 'T') {pboard->pplayers->player[i]->carry_coins+=50; pboard->map[p_y-1][p_x] = ' ';}
+                                if(pboard->map[p_y-1][p_x] == 'A') {pboard->pplayers->player[i]->safe_coins += pboard->pplayers->player[i]->carry_coins; pboard->pplayers->player[i]->carry_coins = 0;}
                                 if(pboard->map[p_y-1][p_x] == '#')
-                                    pboard->pplayers->player[i].in_bushes = 1;
+                                    pboard->pplayers->player[i]->in_bushes = 1;
                                 for(int n = 0; n < BAGS; n++)
                                 {
                                     if(p_x == pboard->bags[n].x && p_y-1 == pboard->bags[n].y)
                                     {
-                                        pboard->pplayers->player[i].carry_coins += pboard->bags[n].amount;
+                                        pboard->pplayers->player[i]->carry_coins += pboard->bags[n].amount;
                                         pboard->bags[n].x = -1;
                                         pboard->bags[n].y = -1;
                                         break;
@@ -399,24 +435,24 @@ void *move_player(void *players)
                                 }
                             }
                         }
-                if(pboard->pplayers->player[i].move == 'B' || pboard->pplayers->player[i].move == 's') //Move down
+                if(pboard->pplayers->player[i]->move == 'B' || pboard->pplayers->player[i]->move == 's') //Move down
                     if(pboard->map[p_y+1][p_x] == ' ' || pboard->map[p_y+1][p_x] == 'c' || pboard->map[p_y+1][p_x] == 't' || pboard->map[p_y+1][p_x] == 'T' || pboard->map[p_y+1][p_x] == '#' || pboard->map[p_y+1][p_x] == 'A' || pboard->map[p_y+1][p_x] == 'D')
                         {
-                            if(pboard->pplayers->player[i].in_bushes) pboard->pplayers->player[i].in_bushes = 0; //If player is in bush wait...
+                            if(pboard->pplayers->player[i]->in_bushes) pboard->pplayers->player[i]->in_bushes = 0; //If player is in bush wait...
                             else
                             {
-                                pboard->pplayers->player[i].y++;moved=1;
-                                if(pboard->map[p_y+1][p_x] == 'c') {pboard->pplayers->player[i].carry_coins++; pboard->map[p_y+1][p_x] = ' ';}
-                                if(pboard->map[p_y+1][p_x] == 't') {pboard->pplayers->player[i].carry_coins+=10; pboard->map[p_y+1][p_x] = ' ';}
-                                if(pboard->map[p_y+1][p_x] == 'T') {pboard->pplayers->player[i].carry_coins+=50; pboard->map[p_y+1][p_x] = ' ';}
-                                if(pboard->map[p_y+1][p_x] == 'A') {pboard->pplayers->player[i].safe_coins += pboard->pplayers->player[i].carry_coins; pboard->pplayers->player[i].carry_coins = 0;}
+                                pboard->pplayers->player[i]->y++;moved=1;
+                                if(pboard->map[p_y+1][p_x] == 'c') {pboard->pplayers->player[i]->carry_coins++; pboard->map[p_y+1][p_x] = ' ';}
+                                if(pboard->map[p_y+1][p_x] == 't') {pboard->pplayers->player[i]->carry_coins+=10; pboard->map[p_y+1][p_x] = ' ';}
+                                if(pboard->map[p_y+1][p_x] == 'T') {pboard->pplayers->player[i]->carry_coins+=50; pboard->map[p_y+1][p_x] = ' ';}
+                                if(pboard->map[p_y+1][p_x] == 'A') {pboard->pplayers->player[i]->safe_coins += pboard->pplayers->player[i]->carry_coins; pboard->pplayers->player[i]->carry_coins = 0;}
                                 if(pboard->map[p_y+1][p_x] == '#')
-                                        pboard->pplayers->player[i].in_bushes = 1;
+                                        pboard->pplayers->player[i]->in_bushes = 1;
                                 for(int n = 0; n < BAGS; n++)
                                 {
                                     if(p_x == pboard->bags[n].x && p_y+1 == pboard->bags[n].y)
                                     {
-                                        pboard->pplayers->player[i].carry_coins += pboard->bags[n].amount;
+                                        pboard->pplayers->player[i]->carry_coins += pboard->bags[n].amount;
                                         pboard->bags[n].x = -1;
                                         pboard->bags[n].y = -1;
                                         break;
@@ -424,24 +460,24 @@ void *move_player(void *players)
                                 }
                             }
                         }
-                if(pboard->pplayers->player[i].move == 'D' || pboard->pplayers->player[i].move == 'a') //Move left
+                if(pboard->pplayers->player[i]->move == 'D' || pboard->pplayers->player[i]->move == 'a') //Move left
                     if(pboard->map[p_y][p_x-1] == ' ' || pboard->map[p_y][p_x-1] == 'c' || pboard->map[p_y][p_x-1] == 't' || pboard->map[p_y][p_x-1] == 'T' || pboard->map[p_y][p_x-1] == '#' || pboard->map[p_y][p_x-1] == 'A' || pboard->map[p_y][p_x-1] == 'D')
                         {
-                            if(pboard->pplayers->player[i].in_bushes) pboard->pplayers->player[i].in_bushes = 0; //If player is in bush wait...
+                            if(pboard->pplayers->player[i]->in_bushes) pboard->pplayers->player[i]->in_bushes = 0; //If player is in bush wait...
                             else
                             {
-                                pboard->pplayers->player[i].x--;moved=1;
-                                if(pboard->map[p_y][p_x-1] == 'c') {pboard->pplayers->player[i].carry_coins++; pboard->map[p_y][p_x-1] = ' ';}
-                                if(pboard->map[p_y][p_x-1] == 't') {pboard->pplayers->player[i].carry_coins+=10; pboard->map[p_y][p_x-1] = ' ';}
-                                if(pboard->map[p_y][p_x-1] == 'T') {pboard->pplayers->player[i].carry_coins+=50; pboard->map[p_y][p_x-1] = ' ';}
-                                if(pboard->map[p_y][p_x-1] == 'A') {pboard->pplayers->player[i].safe_coins += pboard->pplayers->player[i].carry_coins; pboard->pplayers->player[i].carry_coins = 0;}
+                                pboard->pplayers->player[i]->x--;moved=1;
+                                if(pboard->map[p_y][p_x-1] == 'c') {pboard->pplayers->player[i]->carry_coins++; pboard->map[p_y][p_x-1] = ' ';}
+                                if(pboard->map[p_y][p_x-1] == 't') {pboard->pplayers->player[i]->carry_coins+=10; pboard->map[p_y][p_x-1] = ' ';}
+                                if(pboard->map[p_y][p_x-1] == 'T') {pboard->pplayers->player[i]->carry_coins+=50; pboard->map[p_y][p_x-1] = ' ';}
+                                if(pboard->map[p_y][p_x-1] == 'A') {pboard->pplayers->player[i]->safe_coins += pboard->pplayers->player[i]->carry_coins; pboard->pplayers->player[i]->carry_coins = 0;}
                                 if(pboard->map[p_y][p_x-1] == '#')
-                                    pboard->pplayers->player[i].in_bushes = 1;
+                                    pboard->pplayers->player[i]->in_bushes = 1;
                                 for(int n = 0; n < BAGS; n++)
                                 {
                                     if(p_x-1 == pboard->bags[n].x && p_y == pboard->bags[n].y)
                                     {
-                                        pboard->pplayers->player[i].carry_coins += pboard->bags[n].amount;
+                                        pboard->pplayers->player[i]->carry_coins += pboard->bags[n].amount;
                                         pboard->bags[n].x = -1;
                                         pboard->bags[n].y = -1;
                                         break;
@@ -449,24 +485,24 @@ void *move_player(void *players)
                                 }
                             }
                         }
-                if(pboard->pplayers->player[i].move == 'C' || pboard->pplayers->player[i].move == 'd') // Move right
+                if(pboard->pplayers->player[i]->move == 'C' || pboard->pplayers->player[i]->move == 'd') // Move right
                     if(pboard->map[p_y][p_x+1] == ' ' || pboard->map[p_y][p_x+1] == 'c' || pboard->map[p_y][p_x+1] == 't' || pboard->map[p_y][p_x+1] == 'T' || pboard->map[p_y][p_x+1] == '#' || pboard->map[p_y][p_x+1] == 'A' || pboard->map[p_y][p_x-1] == 'D')
                     {
-                        if(pboard->pplayers->player[i].in_bushes) pboard->pplayers->player[i].in_bushes = 0; //If player is in bush wait...
+                        if(pboard->pplayers->player[i]->in_bushes) pboard->pplayers->player[i]->in_bushes = 0; //If player is in bush wait...
                         else
                         {
-                            pboard->pplayers->player[i].x++;moved=1;
-                            if(pboard->map[p_y][p_x+1] == 'c') {pboard->pplayers->player[i].carry_coins++; pboard->map[p_y][p_x+1] = ' ';}
-                            if(pboard->map[p_y][p_x+1] == 't') {pboard->pplayers->player[i].carry_coins+=10; pboard->map[p_y][p_x+1] = ' ';}
-                            if(pboard->map[p_y][p_x+1] == 'T') {pboard->pplayers->player[i].carry_coins+=50; pboard->map[p_y][p_x+1] = ' ';}
-                            if(pboard->map[p_y][p_x+1] == 'A') {pboard->pplayers->player[i].safe_coins += pboard->pplayers->player[i].carry_coins; pboard->pplayers->player[i].carry_coins = 0;}
+                            pboard->pplayers->player[i]->x++;moved=1;
+                            if(pboard->map[p_y][p_x+1] == 'c') {pboard->pplayers->player[i]->carry_coins++; pboard->map[p_y][p_x+1] = ' ';}
+                            if(pboard->map[p_y][p_x+1] == 't') {pboard->pplayers->player[i]->carry_coins+=10; pboard->map[p_y][p_x+1] = ' ';}
+                            if(pboard->map[p_y][p_x+1] == 'T') {pboard->pplayers->player[i]->carry_coins+=50; pboard->map[p_y][p_x+1] = ' ';}
+                            if(pboard->map[p_y][p_x+1] == 'A') {pboard->pplayers->player[i]->safe_coins += pboard->pplayers->player[i]->carry_coins; pboard->pplayers->player[i]->carry_coins = 0;}
                             if(pboard->map[p_y][p_x+1] == '#')
-                                        pboard->pplayers->player[i].in_bushes = 1;
+                                        pboard->pplayers->player[i]->in_bushes = 1;
                             for(int n = 0; n < BAGS; n++)
                             {
                                 if(p_x+1 == pboard->bags[n].x && p_y == pboard->bags[n].y)
                                 {
-                                    pboard->pplayers->player[i].carry_coins += pboard->bags[n].amount;
+                                    pboard->pplayers->player[i]->carry_coins += pboard->bags[n].amount;
                                     pboard->bags[n].x = -1;
                                     pboard->bags[n].y = -1;
                                     break;
@@ -481,51 +517,51 @@ void *move_player(void *players)
                     for(int j = 0; j < MAX_BEASTS; j++)
                     {
                         if(!pboard->pplayers->beast[j].in_game) break;
-                        if(pboard->pplayers->player[i].x == pboard->pplayers->beast[j].x && pboard->pplayers->player[i].y == pboard->pplayers->beast[j].y)
+                        if(pboard->pplayers->player[i]->x == pboard->pplayers->beast[j].x && pboard->pplayers->player[i]->y == pboard->pplayers->beast[j].y)
                         {
-                            if(pboard->pplayers->player[i].carry_coins != 0)
+                            if(pboard->pplayers->player[i]->carry_coins != 0)
                             {
                                 for(int n = 0; n < BAGS; n++) //Make bag with coins
                                 {
                                     if(pboard->bags[n].x == -1)
                                     {
-                                        pboard->bags[n].x = pboard->pplayers->player[i].x;
-                                        pboard->bags[n].y = pboard->pplayers->player[i].y;
-                                        pboard->bags[n].amount = pboard->pplayers->player[i].carry_coins;
+                                        pboard->bags[n].x = pboard->pplayers->player[i]->x;
+                                        pboard->bags[n].y = pboard->pplayers->player[i]->y;
+                                        pboard->bags[n].amount = pboard->pplayers->player[i]->carry_coins;
                                         break;
                                     }
                                 }
                             }
-                            pboard->pplayers->player[i].deaths++;
-                            pboard->pplayers->player[i].carry_coins = 0;
+                            pboard->pplayers->player[i]->deaths++;
+                            pboard->pplayers->player[i]->carry_coins = 0;
                             new_pos(pboard, i);
                         }
                     }
                     int j = 1;
                     for(; j < 3; j++)
                     {
-                        if(j > i && pboard->pplayers->player[i].in_game && pboard->pplayers->player[j].in_game)
+                        if(j > i && pboard->pplayers->player[i]->in_game && pboard->pplayers->player[j]->in_game)
                         {
-                            if(pboard->pplayers->player[i].x == pboard->pplayers->player[j].x && pboard->pplayers->player[i].y == pboard->pplayers->player[j].y)
+                            if(pboard->pplayers->player[i]->x == pboard->pplayers->player[j]->x && pboard->pplayers->player[i]->y == pboard->pplayers->player[j]->y)
                             {
                                 collision = 1;
-                                pboard->pplayers->player[i].deaths++;
-                                pboard->pplayers->player[j].deaths++;
-                                if(pboard->pplayers->player[i].carry_coins == 0 && pboard->pplayers->player[j].carry_coins == 0)
+                                pboard->pplayers->player[i]->deaths++;
+                                pboard->pplayers->player[j]->deaths++;
+                                if(pboard->pplayers->player[i]->carry_coins != 0 || pboard->pplayers->player[j]->carry_coins != 0)
                                 {
                                     for(int n = 0; n < BAGS; n++) //Make bag with coins
                                     {
                                         if(pboard->bags[n].x == -1)
                                         {
-                                            pboard->bags[n].x = pboard->pplayers->player[i].x;
-                                            pboard->bags[n].y = pboard->pplayers->player[i].y;
-                                            pboard->bags[n].amount = pboard->pplayers->player[i].carry_coins + pboard->pplayers->player[j].carry_coins;
+                                            pboard->bags[n].x = pboard->pplayers->player[i]->x;
+                                            pboard->bags[n].y = pboard->pplayers->player[i]->y;
+                                            pboard->bags[n].amount = pboard->pplayers->player[i]->carry_coins + pboard->pplayers->player[j]->carry_coins;
                                             break;
                                         }
                                     }
                                 }
-                                pboard->pplayers->player[i].carry_coins = 0;
-                                pboard->pplayers->player[j].carry_coins = 0;
+                                pboard->pplayers->player[i]->carry_coins = 0;
+                                pboard->pplayers->player[j]->carry_coins = 0;
                                 break;
                             }
                         }
@@ -538,22 +574,23 @@ void *move_player(void *players)
                     }
                 }
 
-                if(pboard->pplayers->player[i].move == 'q') //Player exit game
+                if(pboard->pplayers->player[i]->move == 'q') //Player exit game
                 {
-                    pboard->pplayers->player[i].in_game = 0;
-                    pboard->pplayers->player[i].x = -1;
-                    pboard->pplayers->player[i].move = 'x';
-                    pboard->pplayers->player[i].carry_coins = 0;
-                    pboard->pplayers->player[i].safe_coins = 0;
-                    pboard->pplayers->player[i].deaths = 0;
+                    pboard->pplayers->player[i]->in_game = 0;
+                    pboard->pplayers->player[i]->x = -1;
+                    pboard->pplayers->player[i]->move = 'x';
+                    pboard->pplayers->player[i]->carry_coins = 0;
+                    pboard->pplayers->player[i]->safe_coins = 0;
+                    pboard->pplayers->player[i]->deaths = 0;
+                    pboard->pplayers->p_id->id[i] = 0;
                 }
                 else
                 {
-                    int x = pboard->pplayers->player[i].x - 2;
-                    int y = pboard->pplayers->player[i].y - 2;
+                    int x = pboard->pplayers->player[i]->x - 2;
+                    int y = pboard->pplayers->player[i]->y - 2;
 
                     if(moved)
-                        pboard->pplayers->player[i].move = 'x';
+                        pboard->pplayers->player[i]->move = 'x';
 
                     int curr_x = 0, curr_y = 0;
                     for(int j = 0; j < 25; j++)
@@ -561,25 +598,31 @@ void *move_player(void *players)
                         if(x >= 0 && y >= 0)
                         {
                             if(x == pboard->camp_x && y == pboard->camp_y)
-                                pboard->pplayers->player[i].map[curr_y][curr_x] = 'A';
+                                pboard->pplayers->player[i]->map[curr_y][curr_x] = 'A';
                             else
-                                pboard->pplayers->player[i].map[curr_y][curr_x] = pboard->map[y][x];
+                                pboard->pplayers->player[i]->map[curr_y][curr_x] = pboard->map[y][x];
                             for(int n = 0; n < BAGS; n++) //Check if there are any bags nearby
                             {
                                 if(x == pboard->bags[n].x && y == pboard->bags[n].y)
-                                    pboard->pplayers->player[i].map[curr_y][curr_x] = 'D';
+                                    pboard->pplayers->player[i]->map[curr_y][curr_x] = 'D';
+                            }
+                            for(int n = 0; n < MAX_BEASTS; n++) //Check if there are beasts nearby
+                            {
+                                if(!pboard->pplayers->beast[n].in_game) break;
+                                if(x == pboard->pplayers->beast[n].x && y == pboard->pplayers->beast[n].y)
+                                    pboard->pplayers->player[i]->map[curr_y][curr_x] = '*';
                             }
                         }
                         else
                         {
-                            pboard->pplayers->player[i].map[curr_y][curr_x] = 'X';
+                            pboard->pplayers->player[i]->map[curr_y][curr_x] = 'X';
                         }
                         for(int n = 0; n < 4; n++) //Check if there are other players nearby
                         {
-                            if(pboard->pplayers->player[n].in_game)
+                            if(pboard->pplayers->player[n]->in_game)
                             {
-                                if(n != i && x == pboard->pplayers->player[n].x && y == pboard->pplayers->player[n].y)
-                                    pboard->pplayers->player[i].map[curr_y][curr_x] = '0' + n;
+                                if(n != i && x == pboard->pplayers->player[n]->x && y == pboard->pplayers->player[n]->y)
+                                    pboard->pplayers->player[i]->map[curr_y][curr_x] = '1' + n;
                             }
                         }
                         curr_x++, x++;
@@ -593,8 +636,9 @@ void *move_player(void *players)
             }
         }
         for(int i = 0; i < 4; i++)
-            if(pboard->pplayers->player[i].in_game)
-                sem_post(&pboard->pplayers->player[i].request_move);
+            if(pboard->pplayers->player[i]->in_game)
+                sem_post(&pboard->pplayers->player[i]->request_move);
+
         sem_post(&pboard->pplayers->sync_map);
         usleep(1000000);
     }
@@ -610,48 +654,50 @@ void new_pos(struct board_t *board, int id)
         x = rand() % MAP_SIZE_X;
         y = rand() % MAP_SIZE_Y;
     }
-    board->pplayers->player[id].x = x;
-    board->pplayers->player[id].y = y;
+    board->pplayers->player[id]->x = x;
+    board->pplayers->player[id]->y = y;
     return;
 }
 
 void *resp_player(void *players)
 {
     struct board_t *pboard = (struct board_t *)players;
-
     while(1)
     {
-        sem_wait(&pboard->pplayers->player_response);
+        sem_wait(&pboard->pplayers->p_id->player_response);
+        pthread_mutex_lock(&pboard->resp_player);
         for(int i = 0; i < 4; i++)
         {
-            if(pboard->pplayers->player[i].x == 0)
+            int is_free = 0;
+            if(pboard->pplayers->player[i]->in_game == 0)
             {
-                pboard->pplayers->player[i].safe_coins = 0;
-                pboard->pplayers->player[i].carry_coins = 0;
-                pboard->pplayers->player[i].deaths = 0;
-                pboard->pplayers->player[i].in_bushes = 0;
+                is_free = 1;
+                pboard->pplayers->player[i]->safe_coins = 0;
+                pboard->pplayers->player[i]->carry_coins = 0;
+                pboard->pplayers->player[i]->deaths = 0;
+                pboard->pplayers->player[i]->in_bushes = 0;
                 int x = 0, y = 0;
                 while(pboard->map[y][x] != ' ')
                 {
                     x = rand() % MAP_SIZE_X;
                     y = rand() % MAP_SIZE_Y;
                 }
-                pboard->pplayers->player[i].x = x;
-                pboard->pplayers->player[i].y = y;
+                pboard->pplayers->player[i]->x = x;
+                pboard->pplayers->player[i]->y = y;
 
-                x = pboard->pplayers->player[i].x - 2;
-                y = pboard->pplayers->player[i].y - 2;
+                x = pboard->pplayers->player[i]->x - 2;
+                y = pboard->pplayers->player[i]->y - 2;
 
                 int curr_x = 0, curr_y = 0;
                 for(int j = 0; j < 25; j++)
                 {
                     if(x >= 0 && y >= 0)
                     {
-                        pboard->pplayers->player[i].map[curr_y][curr_x] = pboard->map[y][x];
+                        pboard->pplayers->player[i]->map[curr_y][curr_x] = pboard->map[y][x];
                     }
                     else
                     {
-                        pboard->pplayers->player[i].map[curr_y][curr_x] = 'X';
+                        pboard->pplayers->player[i]->map[curr_y][curr_x] = 'X';
                     }
                     curr_x++, x++;
                     if(curr_x > 4)
@@ -660,10 +706,14 @@ void *resp_player(void *players)
                         curr_y++, y++;
                     }
                 }
-                pboard->pplayers->player[i].in_game = 1;
-                sem_post(&pboard->pplayers->request_position);
+                pboard->pplayers->player[i]->in_game = 1;
+                pboard->pplayers->p_id->id[i] = 1;
+                if(is_free)
+                    break;
             }
         }
+        sem_post(&pboard->pplayers->p_id->request_position);
+        pthread_mutex_unlock(&pboard->resp_player);
     }
     return NULL;
 }
@@ -716,16 +766,28 @@ void *take_input(void *something)
         }
     }
     endwin();
-    sem_close(&ptr->pplayers->player_response);
-    sem_close(&ptr->pplayers->request_position);
+    sem_close(&ptr->pplayers->p_id->player_response);
+    sem_close(&ptr->pplayers->p_id->request_position);
     sem_close(&ptr->pplayers->sync_map);
+    sem_close(&ptr->pplayers->beast_response);
+    sem_close(&ptr->pplayers->move_beast);
     for(int i = 0; i < 4; i++)
     {
-        sem_close(&ptr->pplayers->player[i].request_move);
+        sem_close(&ptr->pplayers->player[i]->request_move);
     }
     pthread_mutex_destroy(&ptr->add_coin);
-    munmap(ptr->pplayers, sizeof(struct players_t));
-    shm_unlink("/players");
+    pthread_mutex_destroy(&ptr->resp_player);
+    munmap(ptr->pplayers->player[0], sizeof(struct player_t));
+    munmap(ptr->pplayers->player[1], sizeof(struct player_t));
+    munmap(ptr->pplayers->player[2], sizeof(struct player_t));
+    munmap(ptr->pplayers->player[3], sizeof(struct player_t));
+    munmap(ptr->pplayers->p_id, sizeof(struct req_id));
+    shm_unlink("/player1");
+    shm_unlink("/player2");
+    shm_unlink("/player3");
+    shm_unlink("/player4");
+    shm_unlink("/id");
+    free(ptr->pplayers);
     free(ptr);
     exit(0);
     return NULL;
