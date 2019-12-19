@@ -40,6 +40,13 @@ struct player_t
     int in_bushes;
 };
 
+struct req_id
+{
+    int id[4]; //If id == 0 - slot is free, id == 1 - slot is ready to take, id == 2 - slot is already taken
+    sem_t request_position;
+    sem_t player_response;
+};
+
 struct beast_t
 {
     int x;
@@ -49,11 +56,12 @@ struct beast_t
 
 struct players_t
 {
-    struct player_t player[4];
-    sem_t request_position;
-    sem_t player_response;
-    sem_t sync_map;
+    struct player_t *player[4];
+    struct req_id *p_id;
     struct beast_t beast[MAX_BEASTS];
+    sem_t move_beast;
+    sem_t beast_response;
+    sem_t sync_map;
 };
 
 struct treasure_t
@@ -70,8 +78,8 @@ struct board_t
     int camp_y;
     struct players_t *pplayers;
     pthread_mutex_t add_coin;
+    pthread_mutex_t resp_player;
     struct treasure_t bags[BAGS];
 };
-
 
 #endif
