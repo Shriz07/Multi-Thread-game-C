@@ -20,97 +20,122 @@ int main()
     init_pair(7, COLOR_YELLOW, COLOR_GREEN);
     init_pair(8, COLOR_RED, COLOR_WHITE);
 
-    int players_data;
-    while(1) //Open data
+    int players_id;
+    while(1)
     {
-        players_data = shm_open("/players", O_RDWR, 0600);
-        if(players_data != -1)  break;
+        players_id = shm_open("/id", O_RDWR, 0600);
+        if(players_id != -1) break;
+        clear();
         mvprintw(0, 0, "Waiting for server ...");
         refresh();
         usleep(1000000);
     }
 
-    struct players_t *players = (struct players_t *)mmap(NULL, sizeof(struct players_t), PROT_READ | PROT_WRITE, MAP_SHARED, players_data, 0);
+    struct req_id *p_id = (struct req_id *)mmap(NULL, sizeof(struct req_id)*4, PROT_READ | PROT_WRITE, MAP_SHARED, players_id, 0);
+
     int my_id = 0;
-    for(int i = 0; i < 4; i++) //Find id
+    while(1)
     {
-        if(players->player[i].in_game == 0)
+        sem_post(&p_id->player_response);
+        sem_wait(&p_id->request_position);
+        int found = 0;
+        for(int i = 0; i < 4; i++) //Find id
         {
-            players->player[i].type = HUMAN;
-            players->player[i].x = 0;
-            players->player[i].in_game = 0;
-            my_id = i;
-            sem_post(&players->player_response);
-            sem_wait(&players->request_position);
-            break;
+            if(p_id->id[i] == 1)
+            {
+                p_id->id[i] = 2;
+                my_id = i;
+                found = 1;
+                break;
+            }
+        }
+        if(found) break;
+        else
+        {
+            clear();
+            mvprintw(0, 0, "Server is full, please wait...");
+            refresh();
+            usleep(1000000);
         }
     }
 
+    int players_data;
+    while(1) //Open data
+    {
+        if(my_id == 0)
+            players_data = shm_open("/player1", O_RDWR, 0600);
+        if(my_id == 1)
+            players_data = shm_open("/player2", O_RDWR, 0600);
+        if(my_id == 2)
+            players_data = shm_open("/player3", O_RDWR, 0600);
+        if(my_id == 3)
+            players_data = shm_open("/player4", O_RDWR, 0600);
+        if(players_data != -1)  break;
+        mvprintw(0, 0, "Waiting for server ...");
+        refresh();
+        usleep(1000000);
+    }
+    struct player_t *player = (struct player_t *)mmap(NULL, sizeof(struct player_t), PROT_READ | PROT_WRITE, MAP_SHARED, players_data, 0);
+    player->type = HUMAN;
 
     int start = 1;
-
     pthread_t input_thread;
-    pthread_create(&input_thread, NULL, take_input, &players->player[my_id]); //Thread for taking input and moving
+    pthread_create(&input_thread, NULL, take_input, player); //Thread for taking input and moving
 
     while(1)
     {
         if(!start) //Request move and wait for server
         {
-            sem_wait(&players->player[my_id].request_move);
+            sem_wait(&player->request_move);
         }
         clear();
-        int x = players->player[my_id].x - 2;
-        int y = players->player[my_id].y - 2;
+        int x = player->x - 2;
+        int y = player->y - 2;
         int check_x = x + 5, curr_x = 0, curr_y = 0;
         for(int i = 0; i < 25; i++)
         {
             if(x >= 0 && y >= 0)
             {
-                if(players->player[my_id].map[curr_y][curr_x] == '|') //Print walls
+                if(player->map[curr_y][curr_x] == '|') //Print walls
                 {
                     attron(COLOR_PAIR(2));
                     mvprintw(y, x, ".");
                 }
-                if(players->player[my_id].map[curr_y][curr_x] == ' ') //Print empty spaces
+                if(player->map[curr_y][curr_x] == ' ') //Print empty spaces
                 {
                     attron(COLOR_PAIR(1));
                     mvprintw(y, x, "0");
                 }
-                if(players->player[my_id].map[curr_y][curr_x] == '#') //Print bushes
+                if(player->map[curr_y][curr_x] == '#') //Print bushes
                 {
                     attron(COLOR_PAIR(3));
                     mvprintw(y, x, "#");
                 }
-                if(players->player[my_id].map[curr_y][curr_x] == 'A') //Print campsite
+                if(player->map[curr_y][curr_x] == 'A') //Print campsite
                 {
                     attron(COLOR_PAIR(7));
                     mvprintw(y, x, "A");
                 }
-                if(players->player[my_id].map[curr_y][curr_x] == 'c' || players->player[my_id].map[curr_y][curr_x] == 't' || players->player[my_id].map[curr_y][curr_x] == 'T' || players->player[my_id].map[curr_y][curr_x] == 'D')
+                if(player->map[curr_y][curr_x] == 'c' || player->map[curr_y][curr_x] == 't' || player->map[curr_y][curr_x] == 'T' || player->map[curr_y][curr_x] == 'D')
                 {                                                     //Print treasure
                     attron(COLOR_PAIR(5));
-                    mvprintw(y, x, "%c", players->player[my_id].map[curr_y][curr_x]);
+                    mvprintw(y, x, "%c", player->map[curr_y][curr_x]);
                 }
-                if(x == players->player[my_id].x && y == players->player[my_id].y) //Print player position
+                if(x == player->x && y == player->y) //Print player position
                 {           
                     attron(COLOR_PAIR(4));
                     mvprintw(y, x, "%c", '1' + my_id);
                 }
-                if(players->player[my_id].map[curr_y][curr_x] == '0' || players->player[my_id].map[curr_y][curr_x] == '1' || players->player[my_id].map[curr_y][curr_x] == '2' || players->player[my_id].map[curr_y][curr_x] == '3')
+                if(player->map[curr_y][curr_x] == '1' || player->map[curr_y][curr_x] == '2' || player->map[curr_y][curr_x] == '3' || player->map[curr_y][curr_x] == '4')
                 {                                                       //Print other players
                     attron(COLOR_PAIR(4));
-                    mvprintw(y, x, "%c", players->player[my_id].map[curr_y][curr_x]);
+                    mvprintw(y, x, "%c", player->map[curr_y][curr_x]);
                 }
-                for(int j = 0; j < MAX_BEASTS; j++) //Print beasts
+                if(player->map[curr_y][curr_x] == '*')
                 {
-                    if(!players->beast[j].in_game) break;
-                    if(x == players->beast[j].x && y == players->beast[j].y)
-                    {
-                        attron(COLOR_PAIR(8));
-                        mvprintw(y, x, "*");
-                    }
-                }
-                
+                    attron(COLOR_PAIR(8));
+                    mvprintw(y, x, "*");
+                }  
                 refresh();
             }
             x++, curr_x++;
@@ -123,9 +148,9 @@ int main()
         attron(COLOR_PAIR(6));              //Print Legend
         mvprintw(0, 54, "Player:"); mvprintw(0, 68, "%d", my_id + 1);
         mvprintw(1, 54, "Type:"); mvprintw(1, 68, "HUMAN");
-        mvprintw(3, 54, "Safe coins:"); mvprintw(3, 68, "%d", players->player[my_id].safe_coins);
-        mvprintw(4, 54, "Coins with:"); mvprintw(4, 68, "%d", players->player[my_id].carry_coins);
-        mvprintw(5, 54, "Deaths:"); mvprintw(5, 68, "%d", players->player[my_id].deaths);
+        mvprintw(3, 54, "Safe coins:"); mvprintw(3, 68, "%d", player->safe_coins);
+        mvprintw(4, 54, "Coins with:"); mvprintw(4, 68, "%d", player->carry_coins);
+        mvprintw(5, 54, "Deaths:"); mvprintw(5, 68, "%d", player->deaths);
         mvprintw(10, 54, "Legend:");
         attron(COLOR_PAIR(4)); mvprintw(11, 54, "1234"); attron(COLOR_PAIR(6)); mvprintw(11, 58, " - Players");
         attron(COLOR_PAIR(2)); mvprintw(12, 54, "|"); attron(COLOR_PAIR(6)); mvprintw(12, 55, "     - Wall");
@@ -148,7 +173,7 @@ void *take_input(void *player)
 {
     struct player_t *p = (struct player_t *)player;
 
-    char move = 'x';
+    char move = 'z';
 
     while(move != 'q')
     {
